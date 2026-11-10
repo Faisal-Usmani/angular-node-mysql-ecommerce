@@ -6,6 +6,7 @@ import { CartStoreItem } from '../services/cart/cart.storeItem';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import { CommonModule, NgClass } from '@angular/common';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Ratings } from '../../ratings/ratings';
 import { LoggedInUser } from '../types/user.type';
 import { UserService } from '../services/user/user.service';
 import { OrderService } from '../services/order/order.service';
@@ -14,11 +15,11 @@ import { switchMap, of } from 'rxjs';
 
 @Component({
   selector: 'app-cart',
-  imports: [FontAwesomeModule, CommonModule, ReactiveFormsModule, NgClass],
-  templateUrl: './cart.component.html',
-  styleUrl: './cart.component.css',
+  imports: [FontAwesomeModule, Ratings, CommonModule, ReactiveFormsModule, NgClass],
+  templateUrl: './cart.html',
+  styleUrl: './cart.css',
 })
-export class CartComponent {
+export class Cart {
   faTrash = faTrash;
   faBoxOpen = faBoxOpen;
   faShoppingCart = faShoppingCart;
@@ -126,19 +127,44 @@ export class CartComponent {
     this.cartStore.removeProduct(cartItem);
   }
 
-  checkout(): void {
+  async checkout(): Promise<void> {
+    // 1. Check authentication
     if (!this.userService.isUserAuthenticated) {
       this.alertType = 2;
       this.alertMessage = 'Please log in to proceed with payment.';
       return;
     }
 
-    if (this.cartStore.cart().products.length > 0 && this.orderForm().valid) {
-      localStorage.setItem('orderFormData', JSON.stringify(this.orderForm().value));
-      // this.razorpayService.redirectToCheckout(this.cartStore.cart().products);
-    } else {
+    // 2. Validate cart and delivery form
+    if (this.cartStore.cart().products.length === 0) {
+      this.alertType = 2;
+      this.alertMessage = 'Your cart is empty.';
+      return;
+    }
+
+    if (this.orderForm().invalid) {
+      this.orderForm().markAllAsTouched();
       this.alertType = 2;
       this.alertMessage = 'Please fill in the delivery address to continue.';
+      return;
+    }
+
+    // 3. Save delivery address temporarily
+    localStorage.setItem('orderFormData', JSON.stringify(this.orderForm().value));
+
+    // 4. Disable checkout button
+    this.disableCheckout = true;
+
+    try {
+      // 5. Start Razorpay payment
+      await this.razorpayService.payWithRazorpay(this.cartStore.cart().products);
+    } catch (error: any) {
+      console.error('Checkout error:', error);
+
+      this.alertType = 2;
+      this.alertMessage = error?.message || 'Unable to initiate payment.';
+
+      this.disableCheckout = false;
     }
   }
 
